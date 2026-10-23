@@ -166,6 +166,9 @@
 </script>
 
 <script>
+/* Keep the browser's own fetch BEFORE the Zoom SDK (a module script, runs later) can replace it */
+const NATIVE_FETCH = window.fetch.bind(window);
+
 /* ======================= SETTINGS ======================= */
 // Your Apps Script web app address (Deploy > Manage deployments > Web app URL, ends with /exec)
 const API_URL = 'https://script.google.com/macros/s/AKfycbyZPA67X5vnN0iu4Qa_dZ73xEYQUPp0PtFLnGAyy3zJD9na_D8rMoG-g8eXnQ3OhTP1Cg/exec';
@@ -191,17 +194,36 @@ function fail(msg) { $('errMsg').textContent = msg || 'Something went wrong. Ple
 async function api(action, extra) {
   const p = new URLSearchParams(Object.assign({ api: action, id: CID, t: TOKEN }, extra || {}));
   let lastErr = '';
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    // 1) normal request with the browser's original fetch
     try {
-      const r = await fetch(API_URL + '?' + p.toString(), { method: 'GET', redirect: 'follow', credentials: 'omit', cache: 'no-store' });
+      const r = await NATIVE_FETCH(API_URL + '?' + p.toString(), { method: 'GET', redirect: 'follow', credentials: 'omit', cache: 'no-store' });
       const txt = await r.text();
       try { return JSON.parse(txt); }
       catch (e) { lastErr = 'server reply ' + r.status + ': ' + txt.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); }
     } catch (e) { lastErr = 'network: ' + (e && e.message ? e.message : e); }
+    // 2) fallback: JSONP (loads the answer as a script, not affected by fetch changes or CORS)
+    try { return await jsonp(p); }
+    catch (e) { lastErr += ' | jsonp: ' + (e && e.message ? e.message : e); }
     await new Promise(r => setTimeout(r, 1500));
   }
   console.error('API ' + action + ' failed - ' + lastErr);
   return { ok: false, msg: 'We could not reach the interview server (step: ' + action + '). Please refresh the page and try again. If it keeps happening, write to careers@accurex.net. [' + lastErr + ']' };
+}
+
+let jsonpSeq = 0;
+function jsonp(params) {
+  return new Promise((resolve, reject) => {
+    const name = 'ax_cb_' + Date.now() + (jsonpSeq++ % 10);
+    const sc = document.createElement('script');
+    const timer = setTimeout(() => { cleanup(); reject(new Error('timeout')); }, 20000);
+    function cleanup() { clearTimeout(timer); try { delete window[name]; } catch (e) { window[name] = undefined; } sc.remove(); }
+    window[name] = data => { cleanup(); resolve(data); };
+    sc.onerror = () => { cleanup(); reject(new Error('script load failed')); };
+    const q = new URLSearchParams(params); q.set('callback', name);
+    sc.src = API_URL + '?' + q.toString();
+    document.head.appendChild(sc);
+  });
 }
 
 /* ---------- AccuTara voice ---------- */
