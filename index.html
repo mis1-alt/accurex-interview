@@ -274,7 +274,7 @@ $('btnRejoin').onclick = () => joinZoom();
 async function joinZoom() {
   showApp('s-joining');
   if (!zoomReady) await new Promise(res => window.addEventListener('zoom-ready', res, { once: true }));
-  const z = await api('join', { sid: sessionId });
+  const z = await api('join', { sess: sessionId });
   if (!z.ok) return fail(z.msg);
 
   const ZoomMtg = window.ZoomMtg;
@@ -337,7 +337,7 @@ $('btnStart').onclick = async () => {
   $('btnStart').disabled = true; $('readyMsg').classList.add('ax-hidden'); $('btnStart').textContent = 'Checking…';
   const m = await mediaCheck();
   if (m) { $('readyMsg').textContent = m; $('readyMsg').classList.remove('ax-hidden'); $('btnStart').disabled = false; $('btnStart').textContent = 'I am ready – start interview'; return; }
-  const r = await api('started', { sid: sessionId });
+  const r = await api('started', { sess: sessionId });
   $('btnStart').disabled = false; $('btnStart').textContent = 'I am ready – start interview';
   if (!r.ok) { $('readyMsg').textContent = r.msg; $('readyMsg').classList.remove('ax-hidden'); return; }
   started = true; sessionStorage.setItem('ax_started_' + CID, '1');
@@ -366,7 +366,7 @@ function startIntro() {
 async function loadQuestion(n, prefix) {
   clearInterval(timerId);
   $('btnNext').disabled = true; $('qMsg').classList.add('ax-hidden');
-  const r = await api('question', { sid: sessionId, n: n });
+  const r = await api('question', { sess: sessionId, n: n });
   if (!r.ok) {
     if (r.zoom) { $('qMsg').textContent = r.msg; $('qMsg').classList.remove('ax-hidden'); $('btnNext').disabled = false;
                   $('btnNext').textContent = 'Try again'; $('btnNext').onclick = () => { $('btnNext').onclick = () => next(false); loadQuestion(n, prefix); }; return; }
@@ -405,7 +405,7 @@ async function next(auto) {
   const lead = qNo === 0 ? 'Thank you. ' : (auto ? 'Time is up. Thank you. ' : 'Thank you. ') + (qNo < total ? 'Moving to the next question. ' : '');
   if (qNo < total) return loadQuestion(qNo + 1, lead);
 
-  const r = await api('finish', { sid: sessionId });
+  const r = await api('finish', { sess: sessionId });
   if (!r.ok && r.zoom) { $('qMsg').textContent = r.msg; $('qMsg').classList.remove('ax-hidden'); $('btnNext').disabled = false; $('btnNext').textContent = 'Try again'; return; }
   finishing = true;
   sessionStorage.setItem('ax_done_' + CID, '1');
