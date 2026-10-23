@@ -252,7 +252,7 @@ $('btnRejoin').onclick = () => joinZoom();
 async function joinZoom() {
   showApp('s-joining');
   if (!zoomReady) await new Promise(res => window.addEventListener('zoom-ready', res, { once: true }));
-  const z = await api('zoom', { sid: sessionId });
+  const z = await api('join', { sid: sessionId });
   if (!z.ok) return fail(z.msg);
 
   const ZoomMtg = window.ZoomMtg;
