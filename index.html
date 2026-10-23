@@ -95,6 +95,7 @@
     <div id="s-joining" class="ax-hidden">
       <h2>Opening the interview room…</h2>
       <p class="muted">This can take up to 30 seconds. Please allow camera and microphone when asked.</p>
+      <p id="joinStatus" class="muted"></p>
     </div>
 
     <div id="s-left" class="ax-hidden">
@@ -160,9 +161,14 @@
 }
 </script>
 <script type="module">
-  import { ZoomMtg } from "https://source.zoom.us/6.10.0/esm/client-view.es.min.js";
-  window.ZoomMtg = ZoomMtg;
-  window.dispatchEvent(new Event('zoom-ready'));
+  try {
+    const m = await import("https://source.zoom.us/6.10.0/esm/client-view.es.min.js");
+    window.ZoomMtg = m.ZoomMtg;
+    window.dispatchEvent(new Event('zoom-ready'));
+  } catch (e) {
+    window.zoomLoadError = String(e && e.message ? e.message : e);
+    window.dispatchEvent(new Event('zoom-failed'));
+  }
 </script>
 
 <script>
@@ -273,7 +279,18 @@ $('btnRejoin').onclick = () => joinZoom();
 
 async function joinZoom() {
   showApp('s-joining');
-  if (!zoomReady) await new Promise(res => window.addEventListener('zoom-ready', res, { once: true }));
+  if (!window.ZoomMtg) {
+    $('joinStatus').textContent = 'Loading Zoom…';
+    const ok = await new Promise(res => {
+      if (window.zoomLoadError) return res(false);
+      const t = setTimeout(() => res(false), 30000);
+      window.addEventListener('zoom-ready', () => { clearTimeout(t); res(true); }, { once: true });
+      window.addEventListener('zoom-failed', () => { clearTimeout(t); res(false); }, { once: true });
+    });
+    if (!ok) return fail('Zoom could not load on this browser or network. Please refresh the page, or try Google Chrome on another network. If it keeps happening, write to ' +
+                         (info ? info.supportEmail : 'careers@accurex.net') + '. [' + (window.zoomLoadError || 'timeout loading Zoom') + ']');
+  }
+  $('joinStatus').textContent = 'Connecting to the interview room…';
   const z = await api('join', { sess: sessionId });
   if (!z.ok) return fail(z.msg);
 
@@ -285,6 +302,7 @@ async function joinZoom() {
     patchJsMedia: true,
     disableInvite: true, disableRecord: true, meetingInfo: [],
     success: () => {
+      hideApp();   // let Zoom show its own preview / "Join" button / messages
       ZoomMtg.join({
         signature: z.signature, sdkKey: z.sdkKey, meetingNumber: z.meetingNumber, passWord: z.passWord,
         userName: z.userName, userEmail: '',
@@ -293,7 +311,7 @@ async function joinZoom() {
           listenToMeeting();
           if (started) resumeInterview(); else showPanel('p-ready');
         },
-        error: err => fail('Could not join the interview room (' + ((err && (err.errorMessage || err.reason)) || 'Zoom error') + '). Please refresh and try again, or write to ' + (info ? info.supportEmail : 'careers@accurex.net') + '.')
+        error: err => fail('Could not join the interview room (' + ((err && err.errorCode) ? 'code ' + err.errorCode + ', ' : '') + ((err && (err.errorMessage || err.reason)) || 'Zoom error') + '). Please refresh and try again, or write to ' + (info ? info.supportEmail : 'careers@accurex.net') + '.')
       });
     },
     error: err => fail('Could not open the interview room on this browser. Please try Google Chrome, or write to ' + (info ? info.supportEmail : 'careers@accurex.net') + '.')
