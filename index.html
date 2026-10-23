@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="format-detection" content="telephone=no">
+<title>Accurex | Video Interview</title>
+<!--
+  ACCUREX | SINGLE-SCREEN AI VIDEO INTERVIEW (hosted on GitHub Pages)
+  - The candidate joins Zoom INSIDE this page (Zoom Meeting SDK, client view) - no second window.
+  - AccuTara's panel floats on top of Zoom: welcome, introduction, 5 questions, timer, auto-advance.
+  - All data, checks and scoring stay in Google Apps Script (API_URL below).
+-->
+<style>
+  :root { --blue:#0b3d91; --blue2:#1565c0; --ink:#1d2433; --muted:#5b6475; --ok:#1b8a4b; --warn:#b26a00; --err:#c62828; }
+  #ax-app, #ax-panel, #ax-app *, #ax-panel * { box-sizing:border-box; font-family:"Segoe UI", Roboto, Arial, sans-serif; }
+  body { margin:0; background:#f3f6fb; }
+
+  /* ---------- pre-join screens ---------- */
+  #ax-app { position:fixed; inset:0; overflow:auto; background:#f3f6fb; z-index:100000; color:var(--ink); }
+  #ax-app header { background:var(--blue); color:#fff; padding:14px 20px; font-weight:600; }
+  #ax-app header span { font-weight:400; opacity:.85; }
+  #ax-app .wrap { max-width:720px; margin:20px auto; padding:0 16px; }
+  #ax-app .card { background:#fff; border-radius:12px; padding:22px; box-shadow:0 2px 10px rgba(0,0,0,.06); }
+  #ax-app h1 { font-size:22px; margin:0 0 8px; } #ax-app h2 { font-size:18px; margin:0 0 10px; }
+  #ax-app p, #ax-app li { line-height:1.55; font-size:15px; }
+  #ax-app .box { background:#f7f9fc; border:1px solid #e1e7f0; border-radius:8px; padding:12px 16px; margin:14px 0; }
+  #ax-app .muted { color:var(--muted); font-size:14px; }
+  #ax-app .id { font-family:monospace; background:#eef3fb; padding:2px 6px; border-radius:4px; }
+  #ax-app label.chk { display:flex; gap:10px; align-items:flex-start; margin-top:10px; cursor:pointer; }
+  #ax-app label.chk input { margin-top:4px; transform:scale(1.2); }
+
+  .ax-btn { display:inline-block; background:var(--blue2); color:#fff !important; border:0; border-radius:8px; padding:12px 20px; font-size:16px; cursor:pointer; text-decoration:none; margin-top:12px; }
+  .ax-btn:disabled { background:#9fb3cf; cursor:not-allowed; }
+  .ax-btn.alt { background:#e8eef8; color:var(--blue) !important; }
+  .ax-hidden { display:none !important; }
+  .ax-warn { color:var(--warn); } .ax-err { color:var(--err); } .ax-ok { color:var(--ok); }
+
+  /* ---------- AccuTara panel floating over Zoom ---------- */
+  #ax-panel { position:fixed; z-index:100001; background:#fff; color:var(--ink); box-shadow:0 6px 24px rgba(0,0,0,.25);
+              right:16px; top:70px; width:380px; max-height:calc(100vh - 150px); overflow:auto; border-radius:12px; }
+  @media (max-width: 760px) {
+    #ax-panel { left:8px; right:8px; top:auto; bottom:84px; width:auto; max-height:46vh; }
+  }
+  #ax-panel .ph { background:var(--blue); color:#fff; padding:10px 14px; display:flex; justify-content:space-between; align-items:center; border-radius:12px 12px 0 0; }
+  #ax-panel .ph b { font-size:15px; }
+  #ax-panel .ph button { background:transparent; border:1px solid rgba(255,255,255,.6); color:#fff; border-radius:6px; padding:3px 9px; cursor:pointer; font-size:13px; }
+  #ax-panel .pb { padding:14px; }
+  #ax-panel.min .pb { display:none; }
+  #ax-panel .qnum { color:var(--blue2); font-weight:700; font-size:13px; text-transform:uppercase; letter-spacing:.5px; }
+  #ax-panel .timer { font-size:28px; font-weight:700; font-variant-numeric:tabular-nums; }
+  #ax-panel .timer.low { color:var(--err); }
+  #ax-panel .bar { height:6px; background:#e1e7f0; border-radius:3px; overflow:hidden; margin:6px 0 10px; }
+  #ax-panel .bar > div { height:100%; background:var(--blue2); width:0%; transition:width .4s; }
+  #ax-panel .qtext { font-size:16px; line-height:1.55; margin:6px 0 12px; }
+  #ax-panel .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+  #ax-panel .ax-btn { margin-top:6px; padding:10px 14px; font-size:15px; }
+  #ax-panel p { margin:6px 0; line-height:1.5; font-size:14px; }
+  #ax-panel ol { margin:6px 0; padding-left:20px; font-size:14px; line-height:1.5; }
+</style>
+</head>
+<body>
+
+<!-- ================= PRE-JOIN SCREENS ================= -->
+<div id="ax-app">
+  <header>ACCUREX BIOMEDICAL <span>| Video Interview</span></header>
+  <div class="wrap"><div class="card">
+
+    <div id="s-load"><p class="muted">Checking your interview link…</p></div>
+
+    <div id="s-error" class="ax-hidden"><h2 class="ax-err">Unable to continue</h2><p id="errMsg"></p></div>
+
+    <div id="s-welcome" class="ax-hidden">
+      <h1>Welcome, <span id="cName"></span></h1>
+      <p>This is your video interview for the role of <b id="cRole"></b>. Your Candidate ID is <span class="id" id="cId1"></span>.</p>
+      <div class="box">
+        <b>How it works</b>
+        <ol>
+          <li>Everything happens on <b>this one screen</b>. The Zoom meeting opens right here, and it is recorded automatically.</li>
+          <li><b>AccuTara</b>, our AI interviewer, will welcome you and ask you to <b>introduce yourself</b> (about 1.5 minutes).</li>
+          <li>She will then read out <b><span id="qCount"></span> questions</b>, one at a time. You get up to <b><span id="mins"></span> minutes</b> for each answer, and she moves on automatically.</li>
+          <li>Total time is around 22 minutes. Works on a laptop or a phone. Use Chrome or Safari, a quiet place and good internet.</li>
+          <li>When your browser asks, please <b>allow camera and microphone</b>.</li>
+        </ol>
+      </div>
+      <div class="box">
+        <b>Consent</b>
+        <p class="muted" style="margin:6px 0 0">This interview is recorded by video and transcribed. Your answers will be assessed by an AI system against a fixed scoring guide, and the result may decide whether you move to the next round. Your appearance, accent and personal characteristics are <b>not</b> assessed. Recordings are kept securely for <span id="ret"></span> days and seen only by Accurex HR. If you would like a human to review your result, email <span class="supp"></span> within 7 days of receiving it.</p>
+        <label class="chk"><input type="checkbox" id="consent"> <span>I agree to the recording and AI assessment described above.</span></label>
+      </div>
+      <button class="ax-btn" id="btnJoin" disabled>Join the interview room</button>
+      <p id="busyMsg" class="ax-warn ax-hidden"></p>
+    </div>
+
+    <div id="s-joining" class="ax-hidden">
+      <h2>Opening the interview room…</h2>
+      <p class="muted">This can take up to 30 seconds. Please allow camera and microphone when asked.</p>
+    </div>
+
+    <div id="s-left" class="ax-hidden">
+      <h2 class="ax-warn">You have left the interview room</h2>
+      <p>Your answers so far are saved. Click below to rejoin and continue from where you stopped.</p>
+      <button class="ax-btn" id="btnRejoin">Rejoin the interview room</button>
+    </div>
+
+    <div id="s-done" class="ax-hidden">
+      <h1 class="ax-ok">Thank you! Your interview is complete.</h1>
+      <p>You can close this page now. We will email you about the next step.</p>
+      <p class="muted">For any help, write to <span class="supp"></span>.</p>
+    </div>
+
+  </div></div>
+</div>
+
+<!-- ================= ACCUTARA PANEL (over Zoom) ================= -->
+<div id="ax-panel" class="ax-hidden">
+  <div class="ph"><b>AccuTara · AI Interviewer</b><button id="btnMin">Hide</button></div>
+  <div class="pb">
+
+    <!-- ready check -->
+    <div id="p-ready">
+      <p><b>Before we begin:</b></p>
+      <ol>
+        <li>Click <b>Join Audio</b> (Computer / Device audio) at the bottom of Zoom.</li>
+        <li>Click <b>Start Video</b> so your camera is on.</li>
+        <li>Wait a few seconds for the <b>Recording</b> sign.</li>
+      </ol>
+      <button class="ax-btn" id="btnStart">I am ready – start interview</button>
+      <p id="readyMsg" class="ax-warn ax-hidden"></p>
+    </div>
+
+    <!-- question -->
+    <div id="p-q" class="ax-hidden">
+      <div class="row"><div class="qnum" id="qLabel">Introduction</div><div class="timer" id="timer">1:30</div></div>
+      <div class="bar"><div id="prog"></div></div>
+      <div class="qtext" id="qText"></div>
+      <div class="row">
+        <button class="ax-btn alt" id="btnRepeat">🔊 Repeat</button>
+        <button class="ax-btn" id="btnNext">Next →</button>
+      </div>
+      <p id="qMsg" class="ax-warn ax-hidden"></p>
+    </div>
+
+    <!-- finishing -->
+    <div id="p-end" class="ax-hidden">
+      <p><b>That was the last question. Thank you!</b></p>
+      <p>Closing the interview room…</p>
+    </div>
+  </div>
+</div>
+
+<!-- Zoom Meeting SDK (client view), loaded exactly as in Zoom's official CDN sample -->
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.3.1",
+    "react-dom": "https://esm.sh/react-dom@18.3.1?deps=react@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1"
+  }
+}
+</script>
+<script type="module">
+  import { ZoomMtg } from "https://source.zoom.us/6.10.0/esm/client-view.es.min.js";
+  window.ZoomMtg = ZoomMtg;
+  window.dispatchEvent(new Event('zoom-ready'));
+</script>
+
+<script>
+/* ======================= SETTINGS ======================= */
+// Your Apps Script web app address (Deploy > Manage deployments > Web app URL, ends with /exec)
+const API_URL = 'https://script.google.com/macros/s/AKfycbyZPA67X5vnN0iu4Qa_dZ73xEYQUPp0PtFLnGAyy3zJD9na_D8rMoG-g8eXnQ3OhTP1Cg/exec';
+const INTRO_SECONDS = 90;
+
+/* ======================= STATE ======================= */
+const q = new URLSearchParams(location.search);
+const CID = (q.get('id') || '').trim(), TOKEN = (q.get('t') || '').trim();
+let info = null, sessionId = sessionStorage.getItem('ax_sid_' + CID) || null;
+let qNo = 0, total = 5, timerId = null, left = 0, endAt = 0, durSec = 0, warned = false, currentText = '';
+let started = sessionStorage.getItem('ax_started_' + CID) === '1';
+let zoomReady = !!window.ZoomMtg, inMeeting = false, finishing = false;
+
+const $ = id => document.getElementById(id);
+const appScreens = ['s-load', 's-error', 's-welcome', 's-joining', 's-left', 's-done'];
+function showApp(id) { $('ax-app').classList.remove('ax-hidden'); appScreens.forEach(s => $(s).classList.toggle('ax-hidden', s !== id)); }
+function hideApp() { $('ax-app').classList.add('ax-hidden'); }
+function showPanel(id) { $('ax-panel').classList.remove('ax-hidden', 'min'); $('btnMin').textContent = 'Hide';
+  ['p-ready', 'p-q', 'p-end'].forEach(s => $(s).classList.toggle('ax-hidden', s !== id)); }
+function fail(msg) { $('errMsg').textContent = msg || 'Something went wrong. Please refresh the page.'; $('ax-panel').classList.add('ax-hidden'); showApp('s-error'); }
+
+/* ---------- API (Apps Script) ---------- */
+async function api(action, extra) {
+  const p = new URLSearchParams(Object.assign({ api: action, id: CID, t: TOKEN }, extra || {}));
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const r = await fetch(API_URL + '?' + p.toString(), { method: 'GET', redirect: 'follow' });
+      return await r.json();
+    } catch (e) { if (attempt === 3) return { ok: false, msg: 'Connection problem. Please check your internet and try again.' }; await new Promise(r => setTimeout(r, 1500)); }
+  }
+}
+
+/* ---------- AccuTara voice ---------- */
+let voice = null;
+function pickVoice() { const vs = speechSynthesis.getVoices();
+  voice = vs.find(v => v.lang === 'en-IN') || vs.find(v => /en-GB/.test(v.lang)) || vs.find(v => /^en/.test(v.lang)) || null; }
+if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+function speak(text, keepQueue) {
+  if (!('speechSynthesis' in window)) return;
+  if (!keepQueue) speechSynthesis.cancel();
+  text = String(text).replace(/\bAI\b/g, 'A I').replace(/\bHOD\b/g, 'H O D').replace(/\bHR\b/g, 'H R');
+  (text.match(/[^.?!]+[.?!]*/g) || [text]).forEach(part => {
+    const u = new SpeechSynthesisUtterance(part.trim()); if (voice) u.voice = voice; u.rate = 0.95; speechSynthesis.speak(u);
+  });
+}
+
+/* ======================= 1. CHECK LINK ======================= */
+async function init() {
+  if (!CID || !TOKEN) return fail('This interview link is incomplete. Please use the exact link from your email.');
+  if (sessionStorage.getItem('ax_done_' + CID) === '1') return showApp('s-done');
+  info = await api('verify');
+  if (!info || !info.ok) return fail(info && info.msg);
+  const backFromZoom = q.get('left') === '1' && sessionId;
+  total = info.totalQuestions;
+  $('cName').textContent = info.name; $('cRole').textContent = info.role; $('cId1').textContent = CID;
+  $('qCount').textContent = total; $('mins').textContent = Math.round(info.answerSeconds / 60);
+  $('ret').textContent = info.retentionDays;
+  document.querySelectorAll('.supp').forEach(e => e.textContent = info.supportEmail);
+  if (backFromZoom) return showApp('s-left');      // candidate clicked Leave in Zoom or dropped out mid-interview
+  showApp('s-welcome');
+}
+
+/* ======================= 2. CONSENT -> JOIN ZOOM HERE ======================= */
+$('consent').onchange = e => $('btnJoin').disabled = !e.target.checked;
+$('btnJoin').onclick = async () => {
+  $('btnJoin').disabled = true; $('busyMsg').classList.add('ax-hidden');
+  const r = await api('start', { ua: navigator.userAgent.slice(0, 150) });
+  if (!r.ok) {
+    if (r.busy) { $('busyMsg').textContent = r.msg; $('busyMsg').classList.remove('ax-hidden'); $('btnJoin').disabled = false; return; }
+    return fail(r.msg);
+  }
+  sessionId = r.sessionId; sessionStorage.setItem('ax_sid_' + CID, sessionId);
+  started = false; sessionStorage.removeItem('ax_started_' + CID);
+  joinZoom();
+};
+$('btnRejoin').onclick = () => joinZoom();
+
+async function joinZoom() {
+  showApp('s-joining');
+  if (!zoomReady) await new Promise(res => window.addEventListener('zoom-ready', res, { once: true }));
+  const z = await api('zoom', { sid: sessionId });
+  if (!z.ok) return fail(z.msg);
+
+  const ZoomMtg = window.ZoomMtg;
+  try { ZoomMtg.preLoadWasm(); ZoomMtg.prepareWebSDK(); } catch (e) {}
+  ZoomMtg.init({
+    leaveUrl: location.origin + location.pathname + '?id=' + encodeURIComponent(CID) + '&t=' + encodeURIComponent(TOKEN) + '&left=1',
+    disableCORP: !window.crossOriginIsolated,
+    patchJsMedia: true,
+    disableInvite: true, disableRecord: true, meetingInfo: [],
+    success: () => {
+      ZoomMtg.join({
+        signature: z.signature, sdkKey: z.sdkKey, meetingNumber: z.meetingNumber, passWord: z.passWord,
+        userName: z.userName, userEmail: '',
+        success: () => {
+          inMeeting = true; hideApp();
+          listenToMeeting();
+          if (started) resumeInterview(); else showPanel('p-ready');
+        },
+        error: err => fail('Could not join the interview room (' + ((err && (err.errorMessage || err.reason)) || 'Zoom error') + '). Please refresh and try again, or write to ' + (info ? info.supportEmail : 'careers@accurex.net') + '.')
+      });
+    },
+    error: err => fail('Could not open the interview room on this browser. Please try Google Chrome, or write to ' + (info ? info.supportEmail : 'careers@accurex.net') + '.')
+  });
+}
+
+/* If the candidate leaves or drops out of Zoom, pause and offer rejoin */
+function listenToMeeting() {
+  try {
+    window.ZoomMtg.inMeetingServiceListener('onMeetingStatus', d => {
+      // 3 = disconnected
+      if (d && d.meetingStatus === 3 && !finishing) { inMeeting = false; pauseForZoom(); }
+    });
+  } catch (e) {}
+}
+function pauseForZoom() {
+  clearInterval(timerId); if ('speechSynthesis' in window) speechSynthesis.cancel();
+  $('ax-panel').classList.add('ax-hidden'); showApp('s-left');
+}
+
+/* Soft check that audio is joined and video is on (if the SDK reports it) */
+function mediaCheck() {
+  return new Promise(res => {
+    try {
+      window.ZoomMtg.getCurrentUser({
+        success: r => {
+          const u = (r && r.result && r.result.currentUser) || {};
+          if (u.audio === '' ) return res('Please click "Join Audio" at the bottom of Zoom first, so we can hear you.');
+          if (u.muted === true) return res('You are on mute. Please unmute your microphone in Zoom.');
+          if (u.bVideoOn === false) return res('Please click "Start Video" so your camera is on.');
+          res('');
+        },
+        error: () => res('')
+      });
+    } catch (e) { res(''); }
+  });
+}
+
+/* ======================= 3. INTERVIEW ======================= */
+$('btnStart').onclick = async () => {
+  $('btnStart').disabled = true; $('readyMsg').classList.add('ax-hidden'); $('btnStart').textContent = 'Checking…';
+  const m = await mediaCheck();
+  if (m) { $('readyMsg').textContent = m; $('readyMsg').classList.remove('ax-hidden'); $('btnStart').disabled = false; $('btnStart').textContent = 'I am ready – start interview'; return; }
+  const r = await api('started', { sid: sessionId });
+  $('btnStart').disabled = false; $('btnStart').textContent = 'I am ready – start interview';
+  if (!r.ok) { $('readyMsg').textContent = r.msg; $('readyMsg').classList.remove('ax-hidden'); return; }
+  started = true; sessionStorage.setItem('ax_started_' + CID, '1');
+  startIntro();
+};
+
+function resumeInterview() {
+  // after a rejoin: continue with the question they were on (or the intro if none yet)
+  const last = Number(sessionStorage.getItem('ax_q_' + CID) || 0);
+  if (last >= 1) loadQuestion(last, 'Welcome back. Let us continue. '); else startIntro();
+}
+
+function startIntro() {
+  qNo = 0;
+  const first = String(info.name || '').split(/\s+/)[0];
+  currentText = 'Please introduce yourself. Tell us your name, your Candidate ID, your current role, and a short overview of your work experience.';
+  $('qLabel').textContent = 'Introduction'; $('qText').textContent = currentText;
+  $('btnNext').textContent = 'Done →'; $('btnNext').disabled = false; $('qMsg').classList.add('ax-hidden');
+  showPanel('p-q');
+  speak('Hello ' + first + ', and welcome to your video interview with Accurex Biomedical. I am AccuTara, and I will be taking your interview today. ' +
+        'I will ask you ' + total + ' questions, one at a time. You will have up to ' + Math.round(info.answerSeconds / 60) + ' minutes for each answer, and I will move to the next question automatically. ' +
+        'Let us begin. ' + currentText);
+  startTimer(INTRO_SECONDS);
+}
+
+async function loadQuestion(n, prefix) {
+  clearInterval(timerId);
+  $('btnNext').disabled = true; $('qMsg').classList.add('ax-hidden');
+  const r = await api('question', { sid: sessionId, n: n });
+  if (!r.ok) {
+    if (r.zoom) { $('qMsg').textContent = r.msg; $('qMsg').classList.remove('ax-hidden'); $('btnNext').disabled = false;
+                  $('btnNext').textContent = 'Try again'; $('btnNext').onclick = () => { $('btnNext').onclick = () => next(false); loadQuestion(n, prefix); }; return; }
+    return fail(r.msg);
+  }
+  qNo = n; currentText = r.text; sessionStorage.setItem('ax_q_' + CID, String(n));
+  $('qLabel').textContent = 'Question ' + n + ' of ' + r.total; $('qText').textContent = r.text;
+  $('btnNext').textContent = n < r.total ? 'Next →' : 'Finish ✓'; $('btnNext').disabled = false;
+  showPanel('p-q');
+  speak((prefix || '') + 'Question ' + n + '. ' + r.text);
+  startTimer(info.answerSeconds);
+}
+
+/* Clock-based timer + 30-second voice warning + automatic next */
+function startTimer(sec) {
+  clearInterval(timerId);
+  durSec = sec; endAt = Date.now() + sec * 1000; warned = false; left = sec; render();
+  timerId = setInterval(tick, 500);
+}
+function tick() {
+  left = Math.max(0, Math.round((endAt - Date.now()) / 1000)); render();
+  if (!warned && left <= 30 && left > 0 && durSec > 45) { warned = true; speak('Thirty seconds left.', true); }
+  if (left <= 0) { clearInterval(timerId); next(true); }
+}
+function render() {
+  const m = Math.floor(left / 60), s = left % 60;
+  $('timer').textContent = m + ':' + String(s).padStart(2, '0');
+  $('timer').classList.toggle('low', left <= 30);
+  $('prog').style.width = (100 * (durSec - left) / durSec) + '%';
+}
+
+async function next(auto) {
+  if (!auto && durSec - left < 20 && !confirm('You have spoken for less than 20 seconds. Move on?')) return;
+  $('btnNext').disabled = true; clearInterval(timerId);
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  const lead = qNo === 0 ? 'Thank you. ' : (auto ? 'Time is up. Thank you. ' : 'Thank you. ') + (qNo < total ? 'Moving to the next question. ' : '');
+  if (qNo < total) return loadQuestion(qNo + 1, lead);
+
+  const r = await api('finish', { sid: sessionId });
+  if (!r.ok && r.zoom) { $('qMsg').textContent = r.msg; $('qMsg').classList.remove('ax-hidden'); $('btnNext').disabled = false; $('btnNext').textContent = 'Try again'; return; }
+  finishing = true;
+  sessionStorage.setItem('ax_done_' + CID, '1');
+  sessionStorage.removeItem('ax_q_' + CID); sessionStorage.removeItem('ax_started_' + CID);
+  showPanel('p-end');
+  speak(lead + 'That was the last question. Thank you for your time. We will email you about the next step. Goodbye.');
+  setTimeout(() => { try { window.ZoomMtg.leaveMeeting({}); } catch (e) {} $('ax-panel').classList.add('ax-hidden'); showApp('s-done'); }, 9000);
+}
+
+$('btnNext').onclick = () => next(false);
+$('btnRepeat').onclick = () => speak(qNo === 0 ? currentText : 'Question ' + qNo + '. ' + currentText);
+$('btnMin').onclick = () => { const p = $('ax-panel'); p.classList.toggle('min'); $('btnMin').textContent = p.classList.contains('min') ? 'Show' : 'Hide'; };
+window.addEventListener('beforeunload', e => { if (inMeeting && !finishing) { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('zoom-ready', () => { zoomReady = true; });
+
+init();
+</script>
+</body>
+</html>
